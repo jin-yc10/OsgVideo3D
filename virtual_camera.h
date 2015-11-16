@@ -6,14 +6,69 @@
 #define OSGVIDEO3D_VIRTUAL_CAMERA_H
 
 #include <opencv2/opencv.hpp>
+
 #include <osg/Camera>
 #include <osg/Geode>
 #include <osg/Geometry>
+#include <osg/io_utils>
 #include <osg/PositionAttitudeTransform>
+#include <osg/Texture2D>
+
+#include <osgDB/Registry>
+#include <osgDB/ReadFile>
+#include <osgDB/WriteFile>
+
+#include "opencv_imagestream.h"
+
+class ModelViewProjectionMatrixCallback: public osg::Uniform::Callback {
+public:
+    ModelViewProjectionMatrixCallback(osg::Matrixd* mat, osg::Matrixd* proj) :
+            _mat(mat), _proj(proj) {
+    }
+
+    virtual void operator()(osg::Uniform* uniform, osg::NodeVisitor* nv) {
+        osg::Matrixd biasMatrix = osg::Matrixd(
+            0.5, 0.0, 0.0, 0.0,
+            0.0, 0.5, 0.0, 0.0,
+            0.0, 0.0, 0.5, 0.0,
+            0.5, 0.5, 0.5, 1.0
+        );
+        osg::Matrixd modelMatrix = osg::computeLocalToWorld(nv->getNodePath());
+        osg::Matrixd modelViewProjectionMatrix = biasMatrix * modelMatrix * (*_mat) * (*_proj);
+        uniform->set(modelViewProjectionMatrix);
+    }
+
+    osg::Matrixd* _mat;
+    osg::Matrixd* _proj;
+};
 
 class virtual_camera {
+
 private:
     osg::Camera* cam;
+    osg::Image* image;
+    std::string sourceType;
+    std::string sourcePath;
+    osg::Uniform* mvp;
+
+    // if updated, render new shadow map
+    osg::Texture* shadowMap;
+
+    void setVideoSource(int camId) {
+        osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
+        imageStream->openCamera(camId);
+    }
+
+    void setVideoSource(std::string path) {
+        osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
+        imageStream->openCamera(path);
+    }
+
+    void setImageSource(std::string path) {
+        osg::Image* img = osgDB::readImageFile(path);
+        img->scaleImage(256,256,1);
+    }
+
 public:
     static osg::Geode* createPyramid() {
         osg::Geode* pyramidGeode = new osg::Geode();
@@ -114,29 +169,68 @@ public:
 
         return pyramidGeode;
     }
-    osg::Matrixd matrixd;
+    osg::Matrixd* matrixd;
+    osg::Matrixd* projection;
     osg::Geode* pyramid;
     osg::PositionAttitudeTransform* node;
-    virtual_camera(const cv::FileNodeIterator it) {
+    virtual_camera(const cv::FileNodeIterator it, unsigned int index) {
         cam = new osg::Camera();
         cam->setName((*it)["name"]);
         cam->addDescription((*it)["desc"]);
         cv::Mat mat;
         (*it)["Matrix"] >> mat;
-        matrixd = osg::Matrixd((double*)mat.data);
+        matrixd = new osg::Matrixd((double*)mat.data);
+        projection = new osg::Matrixd();
         node = new osg::PositionAttitudeTransform;
-        node->setPosition(matrixd.getTrans());
-        node->setAttitude(matrixd.getRotate());
+        node->setPosition(matrixd->getTrans());
+        node->setAttitude(matrixd->getRotate());
         pyramid = createPyramid();
         node->addChild(pyramid);
+        cv::FileNode SourceNode = (*it)["Source"];
+        if ( !SourceNode.empty() ) {
+            this->sourceType = (std::string)SourceNode["Type"];
+            this->sourcePath = (std::string)SourceNode["Path"];
+            std::cout << "Camera Source, Type:" << this->sourceType << ", Path:" << this->sourcePath << std::endl;
+            if( this->sourceType.find("Image") != std::string::npos) {
+                setImageSource(this->sourcePath);
+            } else if( this->sourceType.find("CameraId") != std::string::npos ) {
+                setVideoSource(std::stoi(this->sourcePath));
+            } else if( this->sourceType.find("Video") != std::string::npos) {
+                setVideoSource(this->sourcePath);
+            }
+        }
+        std::stringstream sss;
+        sss << "cameraMVPs[" << index << "]";
+        mvp = new osg::Uniform(osg::Uniform::FLOAT_MAT4, sss.str());
+        mvp->setUpdateCallback(
+                new ModelViewProjectionMatrixCallback(this->matrixd, this->projection)
+        );
+    }
+
+    void saveCamera(cv::FileStorage& fs) {
+        fs << "{"
+        << "name" << this->getCamera()->getName()
+        << "desc" << this->getCamera()->getDescription(0)
+        << "Matrix" << cv::Mat(4,4,CV_64F,(this->matrixd->ptr()))
+        << "Source" << "{"
+        << "Type" << this->sourceType
+        << "Path" << this->sourcePath
+        << "}" << "}";
     }
 
     void setMatrix(osg::Matrixd mat) {
-        this->matrixd = mat;
-        node->setPosition(matrixd.getTrans());
-        node->setAttitude(matrixd.getRotate());
+        this->matrixd->set(mat.ptr());
+        node->setPosition(matrixd->getTrans());
+        node->setAttitude(matrixd->getRotate());
     }
-    const osg::Camera* getCamera() { return cam; }
+
+    void setProjection(osg::Matrixd proj ) {
+        std::cout << "Projection Matrix: " << proj << std::endl;
+        this->projection->set(proj.ptr());
+    }
+    osg::Image* getImage() { return image; }
+    osg::Camera* getCamera() { return cam; }
+    osg::Uniform* getMVPUniform() { return mvp; }
 };
 
 #endif //OSGVIDEO3D_VIRTUAL_CAMERA_H

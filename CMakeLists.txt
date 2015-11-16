@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.2)
 project(OsgVideo3D)
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
-find_package( Qt5Widgets)
-find_package( OpenSceneGraph REQUIRED osgDB osgUtil osgManipulator osgViewer osgGA osgFX osgQt osgText)
+find_package( Qt5Widgets )
+find_package( OpenSceneGraph REQUIRED osgDB osgUtil osgManipulator osgViewer osgGA osgFX osgQt osgText )
 find_package( OpenCV REQUIRED )
 find_package( OpenGL REQUIRED )
 
@@ -19,8 +19,10 @@ IF(APPLE)
     SET(EXTRA_LIBS ${COCOA_LIBRARY} ${OpenGL_LIBRARY})
 ENDIF (APPLE)
 
-set(CMAKE_AUTOMOC ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11")
+add_subdirectory(test)
+
+set(CMAKE_AUTOMOC ON)
 set(SOURCE_FILES main.cpp opencv_imagestream.cpp opencv_imagestream.h qt_mainwindow.cpp qt_mainwindow.h virtual_camera.cpp virtual_camera.h)
 
 add_executable(OsgVideo3D ${SOURCE_FILES})
