@@ -112,7 +112,8 @@ private:
         texture->setResizeNonPowerOfTwoHint(false);
         // Create OpenCVImageStream
         osg::ref_ptr<opencv_imagestream> openCVImageStream = new opencv_imagestream();
-        openCVImageStream->openCamera(0);
+        openCVImageStream->openCamera("floor2/video1.avi");
+//        openCVImageStream->flip(true);
         texture->setImage(openCVImageStream);
         float width = openCVImageStream->aspectRatio();
         float height = 1.0f;
@@ -212,14 +213,14 @@ private:
         vert->loadShaderSourceFromFile("shaders/video.vert");
         frag->loadShaderSourceFromFile("shaders/video.frag");
         sceneStateSet->setAttributeAndModes(programObject, osg::StateAttribute::ON);
-
-
         sceneStateSet->addUniform( new osg::Uniform( "cameraCnt", (int)cameras.size() ) );
+
         array = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "cameraMVPs", 16);
         array->setNumElements(16);
+
         int idx = 0;
         for(auto it = cameras.begin(); it != cameras.end(); it++) {
-            osg::Matrixf view = (*it).matrixf.inverse((*it).matrixf);
+            osg::Matrixf view = (*it).matrixd.inverse((*it).matrixd);
             osg::Matrix mat = view
                               * this->mainView->getCamera()->getProjectionMatrix();
             array->setElement(idx, mat);
@@ -234,7 +235,6 @@ private:
 
     std::vector<virtual_camera> cameras;
     osg::Matrixd mainCamMatrix;
-    osg::Uniform* cameraCnt;
     osg::ref_ptr<osg::Texture2DArray> textures = new osg::Texture2DArray;
 
     void setupCameras(std::string path = "cameras.yaml") {
@@ -260,6 +260,7 @@ private:
             // main cam
             cameras[CurrentCamIdx].setMatrix(mainCamManipulator->getMatrix());
             osg::Matrixd mat = mainCamMatrix;
+            std::cout << mat << std::endl;
             mainCamManipulator->setByMatrix(mat);
         } else {
             // virtual cam
@@ -269,9 +270,9 @@ private:
             } else {
                 cameras[CurrentCamIdx].setMatrix(mainCamManipulator->getMatrix());
             }
-            osg::Matrixd mat = cameras[idx].matrixf;
+            osg::Matrixd mat = cameras[idx].matrixd;
             mainCamManipulator->setByMatrix(mat);
-            debug(cameras[idx].matrixf, 0);
+            debug(cameras[idx].matrixd, 0);
         }
         CurrentCamIdx = idx; // cache the idx;
     }
@@ -342,6 +343,13 @@ public:
         debugWidget->setGeometry(1100,0,300,300);
         debugWidget->setWindowTitle(tr("debug"));
         debugWidget->show();
+
+//        popupView = new osgViewer::View;
+//        popupView->setSceneData(createCameraPlane());
+//        QWidget* popupWidget = addViewWidget( createGraphicsWindow(900,100,320,240,"Popup window",true),
+//                                              popupView);
+//        popupView->setCameraManipulator(new osgGA::TrackballManipulator);
+//        popupWidget->show();
 
         CameraUpdateCallback* cameraCallback = new CameraUpdateCallback(debugLabel[0], this);
         mainView->getCamera()->setUpdateCallback(cameraCallback);

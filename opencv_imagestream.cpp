@@ -100,7 +100,7 @@ void opencv_imagestream_thread::init() {
 }
 
 opencv_imagestream_thread::opencv_imagestream_thread(std::string path) : OpenThreads::Thread(),
-        m_done(false),
+        m_done(false), m_flip(false),
         m_newImageAvailable(false),
         m_videoCaptureDevice(0),
         m_init(false),
@@ -115,7 +115,7 @@ opencv_imagestream_thread::opencv_imagestream_thread(std::string path) : OpenThr
 }
 
 opencv_imagestream_thread::opencv_imagestream_thread(int deviceId) : OpenThreads::Thread(),
-                                                       m_done(false),
+                                                       m_done(false), m_flip(false),
                                                        m_newImageAvailable(false),
                                                        m_videoCaptureDevice(0),
                                                        m_init(false),
@@ -135,6 +135,15 @@ void opencv_imagestream_thread::run() {
             // Get new image
             m_videoCaptureDevice->grab();
             m_videoCaptureDevice->retrieve(m_backBuffer);
+            if( m_backBuffer.size().width == 0 ) {
+                m_videoCaptureDevice->set(CV_CAP_PROP_POS_FRAMES, 0);
+                // TODO: should handle video seprately
+                m_videoCaptureDevice->grab();
+                m_videoCaptureDevice->retrieve(m_backBuffer);
+            }
+            if( m_flip ) {
+                cv::flip(m_backBuffer, m_backBuffer, 0);
+            }
         }
 
         {

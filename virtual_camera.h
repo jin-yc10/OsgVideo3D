@@ -224,7 +224,7 @@ public:
     }
 
 
-    osg::Matrixd matrixf;
+    osg::Matrixd matrixd;
     osg::Matrixd projection;
     osg::Geode* pyramid;
     osg::PositionAttitudeTransform* node;
@@ -232,15 +232,14 @@ public:
         cam = new osg::Camera();
         cam->setName((*it)["name"]);
         cam->addDescription((*it)["desc"]);
-        cv::Mat mat(4,4,CV_32F);
+        cv::Mat mat(4,4,CV_64F);
         (*it)["Matrix"] >> mat;
-        matrixf = osg::Matrixd((float*)mat.data);
+        matrixd = osg::Matrixd((double*)mat.data);
         projection = osg::Matrixd();
         projection.makePerspective( 30., 1., 1., 10. );
         node = new osg::PositionAttitudeTransform;
-        node->setPosition(matrixf.getTrans());
-        node->setAttitude(matrixf.getRotate());
-        node->addChild(makeFrustumFromCamera(matrixf, projection));
+        node->setPosition(matrixd.getTrans());
+        node->setAttitude(matrixd.getRotate());
         cv::FileNode SourceNode = (*it)["Source"];
         if ( !SourceNode.empty() ) {
             this->sourceType = (std::string)SourceNode["Type"];
@@ -253,7 +252,7 @@ public:
         fs << "{"
         << "name" << this->getCamera()->getName()
         << "desc" << this->getCamera()->getDescription(0)
-        << "Matrix" << cv::Mat(4,4,CV_32F,(this->matrixf.ptr()))
+        << "Matrix" << cv::Mat(4,4,CV_64F,(this->matrixd.ptr()))
         << "Source" << "{"
         << "Type" << this->sourceType
         << "Path" << this->sourcePath
@@ -261,9 +260,9 @@ public:
     }
 
     void setMatrix(osg::Matrixf mat) {
-        this->matrixf = mat;
-        node->setPosition(matrixf.getTrans());
-        node->setAttitude(matrixf.getRotate());
+        this->matrixd = mat;
+        node->setPosition(matrixd.getTrans());
+        node->setAttitude(matrixd.getRotate());
     }
 
     void setProjection(osg::Matrixf proj ) {
@@ -286,6 +285,7 @@ public:
             std::cout << "setVideoSource: sourcePath=" << this->sourcePath << std::endl;
             osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
             imageStream->openCamera(this->sourcePath);
+            imageStream->flip(true);
             array->setImage(idx, imageStream);
         }
     }

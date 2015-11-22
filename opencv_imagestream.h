@@ -20,6 +20,7 @@ public:
     opencv_imagestream_thread(int deviceId);
     opencv_imagestream_thread(std::string path);
 
+    void flip(bool flag){ m_flip = flag; }
     virtual void run();
     virtual int cancel();
     bool initialized() const { return m_init; }
@@ -33,6 +34,7 @@ public:
     bool newImageAvailable() const { return m_newImageAvailable; }
 protected:
     bool m_init;
+    bool m_flip;
     bool m_done;
     bool m_newImageAvailable;
     cv::VideoCapture* m_videoCaptureDevice;
@@ -50,7 +52,7 @@ protected:
 class opencv_imagestream : public osg::ImageStream {
 public:
     opencv_imagestream();
-
+    void flip(bool flag) { if(m_cameraThread) m_cameraThread->flip(flag); }
     bool openCamera(int deviceId);
     bool openCamera(std::string path);
     int sensorSizeX() const { return m_cameraThread ? m_cameraThread->sensorSizeX() : 0; }
