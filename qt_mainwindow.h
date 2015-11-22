@@ -8,6 +8,7 @@
 #include <iostream>
 
 #include <QObject>
+#include <QLabel>
 #include <QMainWindow>
 #include <QTimer>
 #include <QPushButton>
@@ -42,23 +43,38 @@
 class QTMainWindow;
 
 class QTVideoWidget : public QWidget, public osgViewer::CompositeViewer {
-    class ModelViewProjectionMatrixCallback: public osg::Uniform::Callback {
-        ModelViewProjectionMatrixCallback(osg::Camera* camera) :
-                _camera(camera) {
-        }
+Q_OBJECT
 
-        virtual void operator()(osg::Uniform* uniform, osg::NodeVisitor* nv) {
-            osg::Matrixd viewMatrix = _camera->getViewMatrix();
-            osg::Matrixd modelMatrix = osg::computeLocalToWorld(nv->getNodePath());
-            osg::Matrixd modelViewProjectionMatrix = modelMatrix * viewMatrix * _camera->getProjectionMatrix();
-            uniform->set(modelViewProjectionMatrix);
+    class CameraUpdateCallback : public osg::NodeCallback {
+    public:
+        QLabel* _o;
+        QTVideoWidget* _t;
+        CameraUpdateCallback(QLabel* o, QTVideoWidget* t): _o(o), _t(t) {}
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv) {
+            std::stringstream ss;
+            ss << node->asCamera()->getInverseViewMatrix();
+            _t->updateCameraUniform(  node->asCamera()->getViewMatrix()
+                                    * node->asCamera()->getProjectionMatrix()
+            );
+            _o->setText(ss.str().c_str());
+            traverse(node, nv);
         }
-
-        osg::Camera* _camera;
     };
 
-Q_OBJECT
+
 private:
+
+    void debug(osg::Matrixd mat, int idx){
+        std::stringstream ss;
+        ss << mat;
+        this->debugLabel[idx]->setText(ss.str().c_str());
+    }
+
+    void debug(std::string str, int idx){
+        this->debugLabel[idx]->setText(str.c_str());
+    }
+
+    osg::Uniform *array;
     osgQt::GraphicsWindowQt* createGraphicsWindow( int x, int y, int w, int h, const std::string& name="", bool windowDecoration=false ) {
         osg::DisplaySettings* ds = osg::DisplaySettings::instance().get();
         osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
@@ -182,6 +198,10 @@ private:
         return temp->asNode();
     }
     osg::Node* initScene() {
+        textures->setFilter(osg::Texture2DArray::MIN_FILTER, osg::Texture2DArray::LINEAR);
+        textures->setFilter(osg::Texture2DArray::MAG_FILTER, osg::Texture2DArray::LINEAR);
+        textures->setWrap(osg::Texture2DArray::WRAP_R, osg::Texture2DArray::REPEAT);
+
         osg::Node* scene = osgDB::readNodeFile("/Users/jin-yc10/Desktop/floor2.obj");
         osg::StateSet* sceneStateSet = scene->getOrCreateStateSet();
         osg::Program* programObject = new osg::Program;
@@ -192,12 +212,23 @@ private:
         vert->loadShaderSourceFromFile("shaders/video.vert");
         frag->loadShaderSourceFromFile("shaders/video.frag");
         sceneStateSet->setAttributeAndModes(programObject, osg::StateAttribute::ON);
+
+
+        sceneStateSet->addUniform( new osg::Uniform( "cameraCnt", (int)cameras.size() ) );
+        array = new osg::Uniform(osg::Uniform::FLOAT_MAT4, "cameraMVPs", 16);
+        array->setNumElements(16);
+        int idx = 0;
+        for(auto it = cameras.begin(); it != cameras.end(); it++) {
+            osg::Matrixf view = (*it).matrixf.inverse((*it).matrixf);
+            osg::Matrix mat = view
+                              * this->mainView->getCamera()->getProjectionMatrix();
+            array->setElement(idx, mat);
+            (*it).setupCamera(idx, textures);
+            idx ++;
+        }
         sceneStateSet->setTextureAttributeAndModes( 0, textures.get(),osg::StateAttribute::ON);
         sceneStateSet->addUniform( new osg::Uniform( "textures", 0 ) );
-        sceneStateSet->addUniform( new osg::Uniform( "cameraCnt", (int)cameras.size() ) );
-        for(auto it = cameras.begin(); it != cameras.end(); it++) {
-            sceneStateSet->addUniform((*it).getMVPUniform());
-        }
+        sceneStateSet->addUniform(array);
         return scene;
     }
 
@@ -214,13 +245,13 @@ private:
         for(;it!=cams.end();it++){
             virtual_camera cam(it, idx);
             cameras.push_back(cam);
-            textures->setImage(idx, cam.getImage());
             idx++;
         }
         fs.release();
     }
 
     void changeCamera(int idx) {
+        std::cout << "changeCamera idx=" << idx << std::endl;
         if( idx == CurrentCamIdx ) {
             // no change, do nothing
             return;
@@ -228,7 +259,8 @@ private:
         if(idx == -1) {
             // main cam
             cameras[CurrentCamIdx].setMatrix(mainCamManipulator->getMatrix());
-            mainCamManipulator->setByMatrix(mainCamMatrix);
+            osg::Matrixd mat = mainCamMatrix;
+            mainCamManipulator->setByMatrix(mat);
         } else {
             // virtual cam
             if( CurrentCamIdx == -1) {
@@ -237,9 +269,17 @@ private:
             } else {
                 cameras[CurrentCamIdx].setMatrix(mainCamManipulator->getMatrix());
             }
-            mainCamManipulator->setByMatrix(*cameras[idx].matrixd);
+            osg::Matrixd mat = cameras[idx].matrixf;
+            mainCamManipulator->setByMatrix(mat);
+            debug(cameras[idx].matrixf, 0);
         }
         CurrentCamIdx = idx; // cache the idx;
+    }
+
+    void updateCameraUniform(osg::Matrixd view) {
+        if( CurrentCamIdx != -1) {
+            array->setElement(CurrentCamIdx, view);
+        }
     }
 
 protected:
@@ -252,6 +292,8 @@ protected:
     osgGA::FirstPersonManipulator* mainCamManipulator;
     osgViewer::View* mainView;
     osgViewer::View* popupView;
+    QWidget* debugWidget;
+    QLabel* debugLabel[3];
 
     int CurrentCamIdx;
 
@@ -260,9 +302,8 @@ public:
                   osgViewer::ViewerBase::ThreadingModel threadingModel=osgViewer::CompositeViewer::SingleThreaded)
             : QWidget(parent, f) {
 
-        textures->setFilter(osg::Texture2DArray::MIN_FILTER, osg::Texture2DArray::LINEAR);
-        textures->setFilter(osg::Texture2DArray::MAG_FILTER, osg::Texture2DArray::LINEAR);
-        textures->setWrap(osg::Texture2DArray::WRAP_R, osg::Texture2DArray::REPEAT);
+        osgDB::Registry::instance()->addFileExtensionAlias( "jpeg", "jpeg" );
+        osgDB::Registry::instance()->addFileExtensionAlias( "jpg", "jpeg" );
 
         setThreadingModel(threadingModel);
         setKeyEventSetsDone(0);
@@ -280,6 +321,7 @@ public:
         mainCamManipulator = new osgGA::FirstPersonManipulator;
         mainView->setCameraManipulator(mainCamManipulator);
         mainView->setSceneData(rootNode);
+
         mainCamMatrix = mainCamManipulator->getMatrix();
         for( auto it = cameras.begin(); it != cameras.end(); it++ ) {
             (*it).setProjection(this->mainView->getCamera()->getProjectionMatrix());
@@ -288,12 +330,21 @@ public:
         // Qt Part
         QWidget* viewerWidget = addViewWidget( createGraphicsWindow(0,0,300,300),
                                                mainView);
-        popupView = new osgViewer::View;
-        popupView->setSceneData(createCameraPlane());
-        QWidget* popupWidget = addViewWidget( createGraphicsWindow(900,100,320,240,"Popup window",true),
-                                              popupView);
-        popupView->setCameraManipulator(new osgGA::TrackballManipulator);
-        popupWidget->show();
+
+        debugWidget = new QWidget;
+        QVBoxLayout* debugLayout = new QVBoxLayout();
+        for(int i=0; i<3; i++) {
+            debugLabel[i] = new QLabel;
+            debugLabel[i]->setText("debug");
+            debugLayout->addWidget(debugLabel[i]);
+        }
+        debugWidget->setLayout(debugLayout);
+        debugWidget->setGeometry(1100,0,300,300);
+        debugWidget->setWindowTitle(tr("debug"));
+        debugWidget->show();
+
+        CameraUpdateCallback* cameraCallback = new CameraUpdateCallback(debugLabel[0], this);
+        mainView->getCamera()->setUpdateCallback(cameraCallback);
 
         QVBoxLayout* vbox = new QVBoxLayout;
         QPushButton* btn = new QPushButton;

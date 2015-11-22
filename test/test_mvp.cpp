@@ -9,27 +9,31 @@
 #include <osg/TexGenNode>
 #include <osg/TexMat>
 #include <osgDB/WriteFile>
+#include <osg/Texture2DArray>
 #include <osgUtil/Optimizer>
 #include <osgDB/Registry>
 #include <osgDB/ReadFile>
 #include <osgViewer/Viewer>
+#include <osg/io_utils>
 
 osg::StateSet* createProjectorState() {
     osg::StateSet* stateset = new osg::StateSet;
 /* 1. Load the texture that will be projected */
-	osg::Texture2D* texture = new osg::Texture2D();
-	texture->setImage(osgDB::readImageFile("images/1.jpeg"));
-	texture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_BORDER);
-	texture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_BORDER);
-	texture->setWrap(osg::Texture::WRAP_R, osg::Texture::CLAMP_TO_BORDER);
-	stateset->setTextureAttributeAndModes(1, texture, osg::StateAttribute::ON);
-
+    osg::Texture2D* texture = new osg::Texture2D();
+    texture->setImage(osgDB::readImageFile("images/1.jpeg"));
+    texture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_BORDER);
+    texture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_BORDER);
+    texture->setWrap(osg::Texture::WRAP_R, osg::Texture::CLAMP_TO_BORDER);
+    stateset->setTextureAttributeAndModes(1, texture, osg::StateAttribute::ON);
 // set up tex gens
-
-	stateset->setTextureMode(1, GL_TEXTURE_GEN_S,osg::StateAttribute::ON);
-	stateset->setTextureMode(1, GL_TEXTURE_GEN_T,osg::StateAttribute::ON);
-	stateset->setTextureMode(1, GL_TEXTURE_GEN_R,osg::StateAttribute::ON);
-	stateset->setTextureMode(1, GL_TEXTURE_GEN_Q,osg::StateAttribute::ON);
+    stateset->setTextureMode(1, GL_TEXTURE_GEN_S,
+                            osg::StateAttribute::ON);
+    stateset->setTextureMode(1, GL_TEXTURE_GEN_T,
+                            osg::StateAttribute::ON);
+    stateset->setTextureMode(1, GL_TEXTURE_GEN_R,
+                            osg::StateAttribute::ON);
+    stateset->setTextureMode(1, GL_TEXTURE_GEN_Q,
+                            osg::StateAttribute::ON);
 /* 2. Load the Shaders */
 
     osg::ref_ptr<osg::Program> projProg(new osg::Program);
@@ -55,6 +59,7 @@ osg::StateSet* createProjectorState() {
                                      -7.0438226775568236e-01, 6.2874203370996518e-01,
                                      3.2943751443577152e-01, 0., 5.0784580030722219e+02,
                                      1.1665999253182690e+01, 3.9053352963362147e+02, 1.);
+
     mat =
             osg::Matrixd::lookAt(projectorPos, projectorPos + projectorDirection, up)
 //          view
@@ -70,7 +75,7 @@ osg::Node* createModel() {
     osg::Group* root = new osg::Group;
 
 /* Load the terrain which will be the receiver of out projection */
-	osg::Node* terr = osgDB::readNodeFile("Terrain2.3ds");
+	osg::Node* terr = osgDB::readNodeFile("/Users/jin-yc10/Desktop/floor2.obj");
 	osg::Image* shot = new osg::Image();
 /* Scale the terrain and move it. */
     osg::Matrix m;

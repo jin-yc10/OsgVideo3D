@@ -12,17 +12,19 @@
 #include <osg/Geometry>
 #include <osg/io_utils>
 #include <osg/PositionAttitudeTransform>
+#include <osg/MatrixTransform>
 #include <osg/Texture2D>
 
 #include <osgDB/Registry>
 #include <osgDB/ReadFile>
 #include <osgDB/WriteFile>
+#include <osg/Texture2DArray>
 
 #include "opencv_imagestream.h"
 
 class ModelViewProjectionMatrixCallback: public osg::Uniform::Callback {
 public:
-    ModelViewProjectionMatrixCallback(osg::Matrixd* mat, osg::Matrixd* proj) :
+    ModelViewProjectionMatrixCallback(osg::Matrixd mat, osg::Matrixd proj) :
             _mat(mat), _proj(proj) {
     }
 
@@ -33,13 +35,13 @@ public:
             0.0, 0.0, 0.5, 0.0,
             0.5, 0.5, 0.5, 1.0
         );
-        osg::Matrixd modelMatrix = osg::computeLocalToWorld(nv->getNodePath());
-        osg::Matrixd modelViewProjectionMatrix = biasMatrix * modelMatrix * (*_mat) * (*_proj);
+//        osg::Matrixd modelMatrix = osg::computeLocalToWorld(nv->getNodePath());
+        osg::Matrixd modelViewProjectionMatrix = biasMatrix * (_mat) * (_proj);
         uniform->set(modelViewProjectionMatrix);
     }
 
-    osg::Matrixd* _mat;
-    osg::Matrixd* _proj;
+    osg::Matrixd _mat;
+    osg::Matrixd _proj;
 };
 
 class virtual_camera {
@@ -53,21 +55,6 @@ private:
 
     // if updated, render new shadow map
     osg::Texture* shadowMap;
-
-    void setVideoSource(int camId) {
-        osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
-        imageStream->openCamera(camId);
-    }
-
-    void setVideoSource(std::string path) {
-        osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
-        imageStream->openCamera(path);
-    }
-
-    void setImageSource(std::string path) {
-        osg::Image* img = osgDB::readImageFile(path);
-        img->scaleImage(256,256,1);
-    }
 
 public:
     static osg::Geode* createPyramid() {
@@ -169,68 +156,142 @@ public:
 
         return pyramidGeode;
     }
-    osg::Matrixd* matrixd;
-    osg::Matrixd* projection;
+
+    osg::Node*
+    makeFrustumFromCamera( osg::Matrixd proj, osg::Matrixd mv )
+    {
+        // Get near and far from the Projection matrix.
+        const double near = proj(3,2) / (proj(2,2)-1.0);
+        const double far = proj(3,2) / (1.0+proj(2,2));
+
+        // Get the sides of the near plane.
+        const double nLeft = near * (proj(2,0)-1.0) / proj(0,0);
+        const double nRight = near * (1.0+proj(2,0)) / proj(0,0);
+        const double nTop = near * (1.0+proj(2,1)) / proj(1,1);
+        const double nBottom = near * (proj(2,1)-1.0) / proj(1,1);
+
+        // Get the sides of the far plane.
+        const double fLeft = far * (proj(2,0)-1.0) / proj(0,0);
+        const double fRight = far * (1.0+proj(2,0)) / proj(0,0);
+        const double fTop = far * (1.0+proj(2,1)) / proj(1,1);
+        const double fBottom = far * (proj(2,1)-1.0) / proj(1,1);
+
+        // Our vertex array needs only 9 vertices: The origin, and the
+        // eight corners of the near and far planes.
+        osg::Vec3Array* v = new osg::Vec3Array;
+        v->resize( 9 );
+        (*v)[0].set( 0., 0., 0. );
+        (*v)[1].set( nLeft, nBottom, -near );
+        (*v)[2].set( nRight, nBottom, -near );
+        (*v)[3].set( nRight, nTop, -near );
+        (*v)[4].set( nLeft, nTop, -near );
+        (*v)[5].set( fLeft, fBottom, -far );
+        (*v)[6].set( fRight, fBottom, -far );
+        (*v)[7].set( fRight, fTop, -far );
+        (*v)[8].set( fLeft, fTop, -far );
+
+        osg::Geometry* geom = new osg::Geometry;
+        geom->setUseDisplayList( false );
+        geom->setVertexArray( v );
+
+        osg::Vec4Array* c = new osg::Vec4Array;
+        c->push_back( osg::Vec4( 1., 1., 1., 1. ) );
+        geom->setColorArray( c, osg::Array::BIND_OVERALL );
+
+        GLushort idxLines[8] = {
+                0, 5, 0, 6, 0, 7, 0, 8 };
+        GLushort idxLoops0[4] = {
+                1, 2, 3, 4 };
+        GLushort idxLoops1[4] = {
+                5, 6, 7, 8 };
+        geom->addPrimitiveSet( new osg::DrawElementsUShort( osg::PrimitiveSet::LINES, 8, idxLines ) );
+        geom->addPrimitiveSet( new osg::DrawElementsUShort( osg::PrimitiveSet::LINE_LOOP, 4, idxLoops0 ) );
+        geom->addPrimitiveSet( new osg::DrawElementsUShort( osg::PrimitiveSet::LINE_LOOP, 4, idxLoops1 ) );
+
+        osg::Geode* geode = new osg::Geode;
+        geode->addDrawable( geom );
+
+        geode->getOrCreateStateSet()->setMode( GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::PROTECTED );
+
+
+        // Create parent MatrixTransform to transform the view volume by
+        // the inverse ModelView matrix.
+        osg::MatrixTransform* mt = new osg::MatrixTransform;
+        mt->setMatrix( osg::Matrixd::inverse( mv ) );
+        mt->addChild( geode );
+
+        return mt;
+    }
+
+
+    osg::Matrixd matrixf;
+    osg::Matrixd projection;
     osg::Geode* pyramid;
     osg::PositionAttitudeTransform* node;
     virtual_camera(const cv::FileNodeIterator it, unsigned int index) {
         cam = new osg::Camera();
         cam->setName((*it)["name"]);
         cam->addDescription((*it)["desc"]);
-        cv::Mat mat;
+        cv::Mat mat(4,4,CV_32F);
         (*it)["Matrix"] >> mat;
-        matrixd = new osg::Matrixd((double*)mat.data);
-        projection = new osg::Matrixd();
+        matrixf = osg::Matrixd((float*)mat.data);
+        projection = osg::Matrixd();
+        projection.makePerspective( 30., 1., 1., 10. );
         node = new osg::PositionAttitudeTransform;
-        node->setPosition(matrixd->getTrans());
-        node->setAttitude(matrixd->getRotate());
-        pyramid = createPyramid();
-        node->addChild(pyramid);
+        node->setPosition(matrixf.getTrans());
+        node->setAttitude(matrixf.getRotate());
+        node->addChild(makeFrustumFromCamera(matrixf, projection));
         cv::FileNode SourceNode = (*it)["Source"];
         if ( !SourceNode.empty() ) {
             this->sourceType = (std::string)SourceNode["Type"];
             this->sourcePath = (std::string)SourceNode["Path"];
             std::cout << "Camera Source, Type:" << this->sourceType << ", Path:" << this->sourcePath << std::endl;
-            if( this->sourceType.find("Image") != std::string::npos) {
-                setImageSource(this->sourcePath);
-            } else if( this->sourceType.find("CameraId") != std::string::npos ) {
-                setVideoSource(std::stoi(this->sourcePath));
-            } else if( this->sourceType.find("Video") != std::string::npos) {
-                setVideoSource(this->sourcePath);
-            }
         }
-        std::stringstream sss;
-        sss << "cameraMVPs[" << index << "]";
-        mvp = new osg::Uniform(osg::Uniform::FLOAT_MAT4, sss.str());
-        mvp->setUpdateCallback(
-                new ModelViewProjectionMatrixCallback(this->matrixd, this->projection)
-        );
     }
 
     void saveCamera(cv::FileStorage& fs) {
         fs << "{"
         << "name" << this->getCamera()->getName()
         << "desc" << this->getCamera()->getDescription(0)
-        << "Matrix" << cv::Mat(4,4,CV_64F,(this->matrixd->ptr()))
+        << "Matrix" << cv::Mat(4,4,CV_32F,(this->matrixf.ptr()))
         << "Source" << "{"
         << "Type" << this->sourceType
         << "Path" << this->sourcePath
         << "}" << "}";
     }
 
-    void setMatrix(osg::Matrixd mat) {
-        this->matrixd->set(mat.ptr());
-        node->setPosition(matrixd->getTrans());
-        node->setAttitude(matrixd->getRotate());
+    void setMatrix(osg::Matrixf mat) {
+        this->matrixf = mat;
+        node->setPosition(matrixf.getTrans());
+        node->setAttitude(matrixf.getRotate());
     }
 
-    void setProjection(osg::Matrixd proj ) {
-        std::cout << "Projection Matrix: " << proj << std::endl;
-        this->projection->set(proj.ptr());
+    void setProjection(osg::Matrixf proj ) {
+        this->projection = proj;
     }
+
+    void setupCamera(int idx, osg::Texture2DArray* array) {
+        if( this->sourceType.find("Image") != std::string::npos) {
+            std::cout << "setImageSource: " << this->sourcePath << std::endl;
+            osg::Image* img = osgDB::readImageFile(this->sourcePath);
+            img->scaleImage(256,256,1);
+            array->setImage(idx, img);
+        } else if( this->sourceType.find("CameraId") != std::string::npos ) {
+            int camId = std::stoi(this->sourcePath);
+            std::cout << "setVideoSource: camId=" << camId << std::endl;
+            osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
+            imageStream->openCamera(camId);
+            array->setImage(idx, imageStream);
+        } else if( this->sourceType.find("Video") != std::string::npos) {
+            std::cout << "setVideoSource: sourcePath=" << this->sourcePath << std::endl;
+            osg::ref_ptr<opencv_imagestream> imageStream = new opencv_imagestream();
+            imageStream->openCamera(this->sourcePath);
+            array->setImage(idx, imageStream);
+        }
+    }
+
     osg::Image* getImage() { return image; }
     osg::Camera* getCamera() { return cam; }
-    osg::Uniform* getMVPUniform() { return mvp; }
 };
 
 #endif //OSGVIDEO3D_VIRTUAL_CAMERA_H

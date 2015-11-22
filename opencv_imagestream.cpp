@@ -55,8 +55,8 @@ void opencv_imagestream_thread::init() {
     // Get camera properties
     m_videoCaptureDevice->set(CV_CAP_PROP_FRAME_WIDTH,640);
     m_videoCaptureDevice->set(CV_CAP_PROP_FRAME_HEIGHT,480);
-    m_sensorSizeX = 512;//static_cast<int> (m_videoCaptureDevice->get(CV_CAP_PROP_FRAME_WIDTH));
-    m_sensorSizeY = 512;//static_cast<int> (m_videoCaptureDevice->get(CV_CAP_PROP_FRAME_HEIGHT));
+    m_sensorSizeX = 256;//static_cast<int> (m_videoCaptureDevice->get(CV_CAP_PROP_FRAME_WIDTH));
+    m_sensorSizeY = 256;//static_cast<int> (m_videoCaptureDevice->get(CV_CAP_PROP_FRAME_HEIGHT));
     m_frameRate = m_videoCaptureDevice->get(CV_CAP_PROP_FPS);
 
     // Grab one image to determine format
@@ -165,7 +165,7 @@ int opencv_imagestream_thread::cancel() {
 void opencv_imagestream_thread::getData(cv::Mat& frame) {
     // Copy image in thread to frame
     OpenThreads::ScopedLock< OpenThreads::Mutex > lock( m_mutex );
-    cv::resize(m_frontBuffer, m_frontBuffer, cv::Size(512,512), 1.0,1.0, CV_INTER_CUBIC);
+    cv::resize(m_frontBuffer, m_frontBuffer, cv::Size(256,256), 1.0,1.0, CV_INTER_CUBIC);
     m_frontBuffer.copyTo(frame);
     m_newImageAvailable = false;
 }
